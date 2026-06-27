@@ -42,17 +42,25 @@ class LlavaMistralModel(LlavaMetaModel, MistralModel):
 class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
     config_class = LlavaMistralConfig
 
-    def __init__(self, config):
+    def __init__(self, config, visual_token_num=None):
         super(MistralForCausalLM, self).__init__(config)
         self.model = LlavaMistralModel(config)
 
-        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        self.lm_head = nn.Linear(
+            config.hidden_size, config.vocab_size, bias=False)
+
+        # VisPruner
+        self.visual_token_num = visual_token_num
 
         # Initialize weights and apply final processing
         self.post_init()
 
     def get_model(self):
         return self.model
+
+    # VisPruner
+    def get_visual_token_num(self):
+        return self.visual_token_num
 
     def forward(
         self,
@@ -121,7 +129,8 @@ class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
                 attention_mask,
                 _,
                 inputs_embeds,
-                _
+                _,
+                visual_token_num
             ) = self.prepare_inputs_labels_for_multimodal(
                 inputs,
                 position_ids,
@@ -133,13 +142,14 @@ class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
             )
         else:
             inputs_embeds = self.get_model().embed_tokens(inputs)
+            visual_token_num = 0
 
         return super().generate(
             position_ids=position_ids,
             attention_mask=attention_mask,
             inputs_embeds=inputs_embeds,
             **kwargs
-        )
+        ), visual_token_num
 
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None,
                                       inputs_embeds=None, **kwargs):
