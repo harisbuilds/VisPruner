@@ -42,7 +42,7 @@ class LlavaMistralModel(LlavaMetaModel, MistralModel):
 class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
     config_class = LlavaMistralConfig
 
-    def __init__(self, config, visual_token_num=None):
+    def __init__(self, config, visual_token_num=None, important_ratio=0.5):
         super(MistralForCausalLM, self).__init__(config)
         self.model = LlavaMistralModel(config)
 
@@ -51,6 +51,7 @@ class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
 
         # VisPruner
         self.visual_token_num = visual_token_num
+        self.important_ratio = important_ratio
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -61,6 +62,9 @@ class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
     # VisPruner
     def get_visual_token_num(self):
         return self.visual_token_num
+
+    def get_important_ratio(self):
+        return self.important_ratio
 
     def forward(
         self,
