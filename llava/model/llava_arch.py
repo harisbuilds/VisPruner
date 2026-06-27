@@ -183,6 +183,7 @@ class LlavaMetaForCausalLM(ABC):
         index_masks.scatter_(1, selected_indices, True)
 
         image_features = self.get_model().mm_projector(image_features)
+        index_masks = index_masks.to(image_features.device)
         return image_features, index_masks
 
     # [VisPruner] Prune visual tokens according to index masks
