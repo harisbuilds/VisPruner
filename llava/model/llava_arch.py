@@ -212,7 +212,9 @@ class LlavaMetaForCausalLM(ABC):
             if mm_patch_merge_type == 'flat':
                 image_features = [x.flatten(0, 1) for x in image_features]
                 index_masks = [x.flatten(0, 1) for x in index_masks]
-                image_features = [x[m] for x, m in zip(image_features, index_masks)]
+                print(f"[VisPruner] before mask: {image_features[0].shape[0]} tokens, mask keeps: {index_masks[0].sum().item()}")
+                image_features = [x[m]
+                                  for x, m in zip(image_features, index_masks)]
             elif mm_patch_merge_type.startswith('spatial'):
                 new_image_features = []
                 for image_idx, (image_feature, index_mask) in enumerate(zip(image_features, index_masks)):
@@ -332,6 +334,7 @@ class LlavaMetaForCausalLM(ABC):
                 if i < num_images:
                     cur_image_features = image_features[cur_image_idx]
                     cur_image_idx += 1
+                    print(f"[VisPruner] image tokens inserted into LLM input: {cur_image_features.shape[0]}")
                     cur_new_input_embeds.append(cur_image_features)
                     cur_new_labels.append(torch.full((cur_image_features.shape[0],), IGNORE_INDEX, device=cur_labels.device, dtype=cur_labels.dtype))
 
