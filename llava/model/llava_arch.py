@@ -142,6 +142,8 @@ class LlavaMetaForCausalLM(ABC):
         image_features, image_attentions = self.get_model().get_vision_tower()(images, output_attentions=True) # (B, N, C), (B, H, N)
         
         B, N, C = image_features.shape
+        print(
+            f"[VisPruner] encode_images called: B={B}, N={N}, visual_token_num={self.get_visual_token_num()}")
         device = image_features.device
         index_masks = torch.ones(B, N, dtype=torch.bool, device=device)
 
