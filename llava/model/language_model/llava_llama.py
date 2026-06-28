@@ -148,6 +148,9 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
             inputs_embeds = self.get_model().embed_tokens(inputs)
             visual_token_num = 0
 
+        print(f"[VisPruner] generate() → inputs_embeds: {inputs_embeds.shape}  "
+              f"(seq_len={inputs_embeds.shape[1]}, visual_tokens={visual_token_num})")
+
         return super().generate(
             position_ids=position_ids,
             attention_mask=attention_mask,
