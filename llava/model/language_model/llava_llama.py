@@ -25,6 +25,7 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.generation.utils import GenerateOutput
 
 from ..llava_arch import LlavaMetaModel, LlavaMetaForCausalLM
+from llava import prune_log  # [LOG]
 
 
 class LlavaLlamaConfig(LlamaConfig):
@@ -148,12 +149,21 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
             inputs_embeds = self.get_model().embed_tokens(inputs)
             visual_token_num = 0
 
-        return super().generate(
+        if prune_log.ENABLED:  # [LOG] prefill ends when the first token's logits are ready
+            kwargs = prune_log.add_first_token_timer(kwargs)
+            prune_log.CURRENT["t_llm_start"] = prune_log.now()
+
+        output_ids = super().generate(
             position_ids=position_ids,
             attention_mask=attention_mask,
             inputs_embeds=inputs_embeds,
             **kwargs
-        ), visual_token_num
+        )
+
+        if prune_log.ENABLED:  # [LOG]
+            prune_log.CURRENT["t_llm_end"] = prune_log.now()
+
+        return output_ids, visual_token_num
 
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None,
                                       inputs_embeds=None, **kwargs):

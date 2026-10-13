@@ -24,6 +24,7 @@ from .multimodal_projector.builder import build_vision_projector
 from llava.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 
 from llava.mm_utils import get_anyres_image_grid_shape
+from llava import prune_log  # [LOG]
 
 
 class LlavaMetaModel:
@@ -139,8 +140,12 @@ class LlavaMetaForCausalLM(ABC):
 
     # [VisPruner] Generate index masks using visual cues
     def encode_images(self, images):
+        if prune_log.ENABLED:  # [LOG]
+            t_start = prune_log.now()
         image_features, image_attentions = self.get_model().get_vision_tower()(images, output_attentions=True) # (B, N, C), (B, H, N)
-        
+        if prune_log.ENABLED:  # [LOG]
+            t_vision_end = prune_log.now()
+
         B, N, C = image_features.shape
         device = image_features.device
         index_masks = torch.ones(B, N, dtype=torch.bool, device=device)
@@ -181,6 +186,11 @@ class LlavaMetaForCausalLM(ABC):
             selected_indices = important_indices # (B, T)
         index_masks = torch.zeros(B, N, dtype=torch.bool, device=device)
         index_masks.scatter_(1, selected_indices, True)
+
+        if prune_log.ENABLED:  # [LOG] residual_indices are the diverse tokens once the loop above has finished
+            prune_log.record_selection(t_start, t_vision_end, important_indices,
+                                       residual_indices if diverse_token_num > 0 else None,
+                                       image_attentions, visual_token_num, N)
 
         image_features = self.get_model().mm_projector(image_features)
         index_masks = index_masks.to(image_features.device)
@@ -271,6 +281,8 @@ class LlavaMetaForCausalLM(ABC):
         else:
             image_features, index_masks = self.encode_images(images)
             image_features = image_features[index_masks].unsqueeze(0)
+            if prune_log.ENABLED:  # [LOG]
+                prune_log.print_shape_once(image_features.shape)
 
         # TODO: image start / end is not implemented here to support pretraining.
         if getattr(self.config, 'tune_mm_mlp_adapter', False) and getattr(self.config, 'mm_use_im_start_end', False):

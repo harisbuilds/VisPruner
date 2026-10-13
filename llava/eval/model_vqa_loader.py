@@ -14,6 +14,7 @@ from torch.utils.data import Dataset, DataLoader
 
 from PIL import Image
 import math
+from llava import prune_log  # [LOG]
 
 
 def split_list(lst, n):
@@ -51,6 +52,8 @@ class CustomDataset(Dataset):
         prompt = conv.get_prompt()
 
         image = Image.open(os.path.join(self.image_folder, image_file)).convert('RGB')
+        if args.blank_image:  # [LOG] sanity check: all-black image of the same size
+            image = Image.new('RGB', image.size, (0, 0, 0))
         image_tensor = process_images([image], self.image_processor, self.model_config)[0]
 
         input_ids = tokenizer_image_token(prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt')
@@ -90,6 +93,8 @@ def eval_model(args):
 
     # Data
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
+    if args.limit is not None:  # [LOG]
+        questions = questions[:args.limit]
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
     answers_file = os.path.expanduser(args.answers_file)
     os.makedirs(os.path.dirname(answers_file), exist_ok=True)
@@ -101,10 +106,45 @@ def eval_model(args):
 
     data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config)
 
+    if args.log_dir:  # [LOG]
+        prune_log.ENABLED = True
+        suffix = "" if args.num_chunks == 1 else f"_{args.num_chunks}_{args.chunk_idx}"
+        cls_attn_dir = os.path.join(args.log_dir, "cls_attn")
+        os.makedirs(cls_attn_dir, exist_ok=True)
+        log_file = open(os.path.join(args.log_dir, f"questions{suffix}.jsonl"), "w")
+        template = conv_templates[args.conv_mode].copy()
+        template.append_message(template.roles[0], DEFAULT_IMAGE_TOKEN + "\n{text}")
+        template.append_message(template.roles[1], None)
+        run_meta_path = os.path.join(args.log_dir, f"run_meta{suffix}.json")
+        run_meta = {
+            "model_path": args.model_path,
+            "dataset": os.path.basename(os.path.dirname(os.path.abspath(args.question_file))),
+            "split": os.path.splitext(os.path.basename(args.question_file))[0],
+            "question_file": args.question_file,
+            "image_folder": args.image_folder,
+            "answers_file": args.answers_file,
+            "num_questions": len(questions),
+            "limit": args.limit,
+            "num_chunks": args.num_chunks,
+            "chunk_idx": args.chunk_idx,
+            "k": args.visual_token_num,
+            "important_ratio": args.important_ratio,
+            "conv_mode": args.conv_mode,
+            "prompt_template": template.get_prompt(),
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "num_beams": args.num_beams,
+            "max_new_tokens": args.max_new_tokens,
+            "blank_image": args.blank_image,
+        }
+        prune_log.write_run_meta(run_meta_path, run_meta)
+
     data_bar = tqdm(zip(data_loader, questions), total=len(questions))
     for (input_ids, image_tensors, image_sizes), line in data_bar:
         idx = line["question_id"]
         cur_prompt = line["text"]
+        if args.log_dir:  # [LOG]
+            prune_log.CURRENT.clear()
 
         input_ids = input_ids.to(device='cuda', non_blocking=True)
         image_tensors = image_tensors.to(dtype=torch.float16, device='cuda', non_blocking=True)
@@ -132,7 +172,15 @@ def eval_model(args):
                                    "model_id": model_name,
                                    "metadata": {}}) + "\n")
         ans_file.flush()
+
+        if args.log_dir:  # [LOG] question text without the instruction suffix, e.g. "\nAnswer the question using a single word or phrase."
+            prune_log.write_question(log_file, cls_attn_dir, idx, line["image"], cur_prompt.split("\n")[0], outputs,
+                                     args.visual_token_num, args.important_ratio, output_ids, visual_token_num)
     ans_file.close()
+
+    if args.log_dir:  # [LOG]
+        log_file.close()
+        prune_log.write_run_meta(run_meta_path, run_meta, end=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -150,6 +198,9 @@ if __name__ == "__main__":
     parser.add_argument("--max_new_tokens", type=int, default=128)
     parser.add_argument("--visual_token_num", type=int, default=576)
     parser.add_argument("--important_ratio", type=float, default=0.5)
+    parser.add_argument("--log_dir", type=str, default=None)  # [LOG] turns on per-question logging
+    parser.add_argument("--blank_image", action="store_true")  # [LOG]
+    parser.add_argument("--limit", type=int, default=None)  # [LOG] only the first N questions
     args = parser.parse_args()
 
     eval_model(args)
